@@ -1,105 +1,117 @@
 import fs from 'fs';
 
-async function registration(regUrl, username) {
-    try {
-        const response = await fetch(regUrl, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ username: username })
-        });
-    
-        if (!response.ok) {
-          throw new Error(`Ошибка при регистрации. HTTP статус: ${response.status}`);
-        }
-        const responseData = await response.json();
-        return responseData
-      } catch (error) {
-        console.error("Ошибка при логине:", error);
-        throw error; 
-      }
-}
-//console.log(registration('http://94.103.91.4:5000/auth/registration', 'malindac'))
-
-async function login(authUrl, username) {
-    try {
-      const response = await fetch(authUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ username: username })
-      });
-  
-      if (!response.ok) {
-        throw new Error(`Ошибка при логине. HTTP статус: ${response.status}`);
-      }
-      const responseData = await response.json();
-      return responseData.token
-    } catch (error) {
-      console.error("Ошибка при логине:", error);
-      throw error; 
+class API {
+  constructor(baseUrl) {
+    if(API.instance) {
+      return API.instance
     }
+    this.baseUrl = baseUrl;
+    API.instance = this;
   }
 
-  async function getClients(clientUrl, token, limit, offset) {
+  async request(endpoint, method = 'GET', body = null, headers = {}) {
     try {
-      const response = await fetch(`${clientUrl}?limit=${limit}&offset=${offset}`, {
-        method: 'GET',
+      const response = await fetch(`${this.baseUrl}${endpoint}`, {
+        method,
         headers: {
-          'Authorization': `${token}`,
-        }
+          'Content-Type': 'application/json',
+          ...headers,
+        },
+        body: body ? JSON.stringify(body) : null,
       });
-  
       if (!response.ok) {
-        throw new Error(`Ошибка при получении клиентов. HTTP статус: ${response.status}`);
+        const errorResponse = await response.json();
+        console.log(`API: Error while request HTTP STATUS:${response.status}`, errorResponse);
+        throw new Error(errorResponse.message || 'Unknown error');
       }
-  
-      const data = await response.json();
-      return data; 
+      return await response.json();
     } catch (error) {
-      console.error("Ошибка при запросе:", error);
+      console.log(`API: Error while getting endpoint ${endpoint}`, error);
       throw error;
     }
   }
+}
 
-  async function getStatus(statusUrl, token, userIds) {
-    try {
-      const response = await fetch(statusUrl, {
-        method: 'POST',
-        headers: {
-          'Authorization': `${token}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({"userIds": userIds})
-      });
-  
-      if (!response.ok) {
-        throw new Error(`Ошибка при получении статусов. HTTP статус: ${response.status}`);
+class AuthService {
+  constructor(api) {
+    if (AuthService.instance) {
+      return AuthService.instance;
+    }
+    this.api = api;
+    AuthService.instance = this;
+  }
+  async register(username) {
+    return await this.api.request('/auth/registration', 'POST', { username });
+  }
+  async login(username) {
+    const response = await this.api.request('/auth/login', 'POST', { username });
+    return response.token;
+  }
+  }
+
+  class ClientService {
+    constructor(api) {
+      if (ClientService.instance) {
+        return ClientService.instance;
       }
-      const responseData = await response.json();
-      return responseData
-    } catch (error) {
-      console.error("Ошибка при получении статусов:", error);
-      throw error; 
+      this.api = api;
+      this.token = null;
+      ClientService.instance = this; 
+    }
+    setToken(token) {
+      this.token = token;
+    }
+    async getClients(limit, offset) {
+      if (!this.token) {
+        console.log('ClientService: No token');
+      }
+      return await this.api.request(
+        `/clients?limit=${limit}&offset=${offset}`,
+        'GET',
+        null,
+        {Authorization: this.token}
+      );
+    }
+    
+    async getStatuses(userIds) {
+      if (this.token) {
+        console.log('ClientService: No token');
+      }
+
+      return await this.api.request(
+        '/clients',
+        'POST',
+        {userIds},
+        {Authorization: this.token}
+      );
     }
   }
 
-const token = await login('http://94.103.91.4:5000/auth/login', 'malindac');
-const clients = await getClients('http://94.103.91.4:5000/clients', token, 1000, 0);
-const userIds = clients.map(client => client.id);
-const statuses = await getStatus('http://94.103.91.4:5000/clients', token, userIds);
+  (async () => {
+    const baseURL = 'http://94.103.91.4:5000';
+    const api = new API(baseURL);
 
-const result = clients.map(client => {
-    const status = statuses.find(status => status.id === client.id);
-    return {
-      ...client,status: status ? status.status : '-'
-    };
-  });
-
-const resultJson = JSON.stringify(result, null, 2);
-
-fs.writeFileSync('result.json', resultJson, 'utf8');
-
-
+    const authService = new AuthService(api);
+    const clientService = new ClientService(api);
+    try {
+    const username = 'myveryte13stuser'
+    await authService.register(username);
+    const token = await authService.login(username);
+    clientService.setToken(`${token}`);
+    const clients = await clientService.getClients(1000, 0);
+    const userIds = clients.map(client => client.id);
+    const statuses = await clientService.getStatuses(userIds);
+    const result = clients.map(client => {
+      const status = statuses.find(status => status.id === client.id);
+      return {
+        ...client,
+        status: status ? status.status : '',
+      };
+    });
+    const resultJson = JSON.stringify(result, null, 2);
+    fs.writeFileSync('result2.json', resultJson, 'utf-8');
+    console.log('Result saved to result2.json');
+  } catch (error) {
+    console.error('Error:', error.message);
+  }
+})();
