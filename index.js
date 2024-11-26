@@ -79,7 +79,6 @@ async function login(authUrl, username) {
         throw new Error(`Ошибка при получении статусов. HTTP статус: ${response.status}`);
       }
       const responseData = await response.json();
-      console.log("Statuses:",responseData)
       return responseData
     } catch (error) {
       console.error("Ошибка при получении статусов:", error);
@@ -100,7 +99,6 @@ const result = clients.map(client => {
   });
 
 const resultJson = JSON.stringify(result, null, 2);
-
 
 fs.writeFileSync('result.json', resultJson, 'utf8');
 
